@@ -130,7 +130,6 @@
                 .select('*')
                 .eq('nickname', nickname);
 
-            // Cleans out or forces an empty layout if no user exists
             if (!user || user.length === 0) {
                 const { error: insErr } = await _supabase
                     .from('shared_users')
@@ -189,7 +188,7 @@
 
             if (uErr || tErr || !usersArray || !topics) return;
 
-            // Active topics sorted straight to the top
+            // Sort open/active topics to the very top
             topics.sort((a, b) => {
                 if (a.status === 'open' && b.status !== 'open') return -1;
                 if (a.status !== 'open' && b.status === 'open') return 1;
@@ -206,6 +205,11 @@
 
             const listContainer = document.getElementById('topics-list');
             listContainer.innerHTML = '';
+
+            if (topics.length === 0) {
+                listContainer.innerHTML = '<p style="color:#6c757d; font-style:italic; text-align:center;">No prediction topics active right now. Waiting for the admin to add one!</p>';
+                return;
+            }
 
             topics.forEach(topic => {
                 const item = document.createElement('div');
