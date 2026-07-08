@@ -181,18 +181,24 @@
             }
         }
 
-        async function syncAndRefreshUI() {
+       async function syncAndRefreshUI() {
             if (!currentUser) return;
 
             // Fetch live profiles and topics from the global database tables
-            let { data: usersArray } = await _supabase.from('shared_users').select('*');
-            let { data: topics } = await _supabase.from('shared_topics').select('*').order('id', { ascending: true });
+            let { data: usersArray, error: uErr } = await _supabase.from('shared_users').select('*');
+            let { data: topics, error: tErr } = await _supabase.from('shared_topics').select('*').order('id', { ascending: true });
 
-            if (!usersArray || !topics) return;
+            if (uErr || tErr || !usersArray || !topics) {
+                console.error("Sync error:", uErr || tErr);
+                return;
+            }
 
             // Reconstruct an internal lookup structure out of global array
             let users = {};
             usersArray.forEach(u => { users[u.nickname] = u; });
+
+            // Safety check if user vanished from DB
+            if (!users[currentUser]) return;
 
             document.getElementById('user-display').innerText = currentUser;
             document.getElementById('points-display').innerText = users[currentUser].points;
@@ -204,7 +210,9 @@
                 const item = document.createElement('div');
                 item.className = 'topic-item';
                 
-                let userBet = users[currentUser].bets[topic.id];
+                // Safe check for bets object
+                let userBets = users[currentUser].bets || {};
+                let userBet = userBets[topic.id];
 
                 if (topic.status === 'open') {
                     if (userBet) {
@@ -218,7 +226,7 @@
                             <div class="inline-flex" style="margin-top: 8px;">
                                 <input type="number" id="guess-${topic.id}" placeholder="Your Guess">
                                 <input type="number" id="amount-${topic.id}" placeholder="Points to Bet" min="1">
-                                <button onclick="placeBet(${topic.id}, ${users[currentUser].points})" style="width: auto;">Bet</button>
+                                <button onclick="placeBet(${topic.id})" style="width: auto;">Bet</button>
                             </div>
                         `;
                     }
@@ -242,8 +250,9 @@
                 // Global Bet View
                 let poolListItems = '';
                 for (let player in users) {
-                    if (users[player].bets && users[player].bets[topic.id]) {
-                        let betInfo = users[player].bets[topic.id];
+                    let playerBets = users[player].bets || {};
+                    if (playerBets[topic.id]) {
+                        let betInfo = playerBets[topic.id];
                         poolListItems += `<li><strong>${player}</strong>: guess <strong>${betInfo.guess}</strong> (${betInfo.amount} pts)</li>`;
                     }
                 }
@@ -259,22 +268,24 @@
             });
         }
 
-        async function placeBet(topicId, currentPoints) {
+        async function placeBet(topicId) {
             const guessInput = document.getElementById(`guess-${topicId}`).value;
             const amountInput = parseInt(document.getElementById(`amount-${topicId}`).value);
 
             if (guessInput === "" || isNaN(amountInput)) return alert("Please enter both fields.");
             if (amountInput <= 0) return alert("Bet must be greater than 0!");
-            if (amountInput > currentPoints) return alert("Insufficient points!");
 
-            // Fetch absolute up-to-date user object straight from remote cluster
-            let { data: user } = await _supabase.from('shared_users').select('*').eq('nickname', currentUser).single();
+            // Fetch absolute up-to-date user object straight from remote database
+            let { data: user, error: fetchErr } = await _supabase.from('shared_users').select('*').eq('nickname', currentUser).single();
+            
+            if (fetchErr || !user) return alert("Error finding your user profile.");
+            if (amountInput > user.points) return alert("Insufficient points! You only have " + user.points + " points left.");
             
             let updatedBets = user.bets || {};
             updatedBets[topicId] = { guess: parseFloat(guessInput), amount: amountInput };
 
             // Commit transaction data remotely
-            await _supabase
+            const { error: updateErr } = await _supabase
                 .from('shared_users')
                 .update({ 
                     points: user.points - amountInput, 
@@ -282,9 +293,14 @@
                 })
                 .eq('nickname', currentUser);
 
-            syncAndRefreshUI();
+            if (updateErr) {
+                console.error(updateErr);
+                alert("Could not save bet to database. Make sure your tables allow updates!");
+            } else {
+                // Instantly update UI without waiting for the 4-second timer
+                syncAndRefreshUI();
+            }
         }
-
         async function addNewTopic() {
             const questionInput = document.getElementById('new-question-input');
             const questionText = questionInput.value.trim();
