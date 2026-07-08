@@ -67,7 +67,7 @@
     <div id="login-screen" class="card">
         <h2>Family Prediction Pool</h2>
         <p>Enter a nickname to join with 100 virtual points!</p>
-        <input type="text" id="nickname-input" placeholder="Your Nickname">
+        <input type="text" id="nickname-input" placeholder="Your Nickname" onkeydown="if(event.key==='Enter') login()">
         <button onclick="login()">Enter Game</button>
     </div>
 
@@ -92,7 +92,7 @@
         
         <div class="card" style="border-style: dashed; border-color: #198754; margin-bottom: 20px; padding: 15px;">
             <h3 style="color: #198754; margin-top: 0;">Create New Prediction Topic</h3>
-            <input type="text" id="new-question-input" placeholder="e.g., How many minutes late will Uncle Bob arrive?">
+            <input type="text" id="new-question-input" placeholder="e.g., How many minutes late will Uncle Bob arrive?" onkeydown="if(event.key==='Enter') addNewTopic()">
             <button onclick="addNewTopic()" style="background-color: #198754;">Add Topic to Pool</button>
         </div>
 
@@ -113,9 +113,8 @@
 
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         let currentUser = null;
-        let isTyping = false; // Prevents the 4-second refresh loop from closing the keyboard
+        let isTyping = false;
 
-        // Auto-fetch data from cloud storage every 4 seconds, unless actively typing
         setInterval(() => {
             if (currentUser && !isTyping) {
                 syncAndRefreshUI();
@@ -189,6 +188,13 @@
 
             if (uErr || tErr || !usersArray || !topics) return;
 
+            // SORTING LOGIC: Pushes 'open' topics to the top, 'closed' to the bottom
+            topics.sort((a, b) => {
+                if (a.status === 'open' && b.status !== 'open') return -1;
+                if (a.status !== 'open' && b.status === 'open') return 1;
+                return 0; // Keep original order if statuses are the same
+            });
+
             let users = {};
             usersArray.forEach(u => { users[u.nickname] = u; });
 
@@ -217,8 +223,8 @@
                         item.innerHTML = `
                             <strong>${topic.question}</strong>
                             <div class="inline-flex" style="margin-top: 8px;">
-                                <input type="number" id="guess-${topic.id}" placeholder="Your Guess" onfocus="isTyping=true" onblur="isTyping=false">
-                                <input type="number" id="amount-${topic.id}" placeholder="Points to Bet" min="1" onfocus="isTyping=true" onblur="isTyping=false">
+                                <input type="number" id="guess-${topic.id}" placeholder="Your Guess" onfocus="isTyping=true" onblur="isTyping=false" onkeydown="if(event.key==='Enter') placeBet(${topic.id})">
+                                <input type="number" id="amount-${topic.id}" placeholder="Points to Bet" min="1" onfocus="isTyping=true" onblur="isTyping=false" onkeydown="if(event.key==='Enter') placeBet(${topic.id})">
                                 <button onclick="placeBet(${topic.id})" style="width: auto;">Bet</button>
                             </div>
                         `;
@@ -275,7 +281,6 @@
             let updatedBets = user.bets || {};
             updatedBets[topicId] = { guess: parseFloat(guessInput), amount: amountInput };
 
-            // Reset typing lock right before updating the database
             isTyping = false;
 
             const { error: updateErr } = await _supabase
@@ -316,6 +321,14 @@
 
         async function renderAdmin() {
             let { data: topics } = await _supabase.from('shared_topics').select('*').order('id', { ascending: true });
+            
+            // Optional: You can also sort admin view if you want open topics at top for admin panel too
+            topics.sort((a, b) => {
+                if (a.status === 'open' && b.status !== 'open') return -1;
+                if (a.status !== 'open' && b.status === 'open') return 1;
+                return 0;
+            });
+
             const adminContainer = document.getElementById('admin-topics');
             adminContainer.innerHTML = '';
 
@@ -327,7 +340,7 @@
                     item.innerHTML = `
                         <p><strong>${topic.question}</strong></p>
                         <div class="inline-flex">
-                            <input type="number" id="actual-${topic.id}" placeholder="Actual Result">
+                            <input type="number" id="actual-${topic.id}" placeholder="Actual Result" onkeydown="if(event.key==='Enter') resolveTopic(${topic.id})">
                             <button onclick="resolveTopic(${topic.id})" style="background-color: #198754;">Resolve</button>
                         </div>
                     `;
