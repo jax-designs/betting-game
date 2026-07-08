@@ -90,6 +90,15 @@
     <div id="admin-panel" class="card hidden">
         <h2>Admin Control Panel</h2>
         
+        <div class="card" style="border-style: dashed; border-color: #0d6efd; margin-bottom: 20px; padding: 15px;">
+            <h3 style="color: #0d6efd; margin-top: 0;">Distribute Points Globally</h3>
+            <p style="font-size: 0.85rem; margin: 4px 0;">Add points to the balance of every player currently registered.</p>
+            <div class="inline-flex">
+                <input type="number" id="global-points-input" placeholder="Amount (e.g., 50)" onkeydown="if(event.key==='Enter') givePointsToAll()">
+                <button onclick="givePointsToAll()" style="background-color: #0d6efd; width: auto; white-space: nowrap;">Give Points</button>
+            </div>
+        </div>
+
         <div class="card" style="border-style: dashed; border-color: #198754; margin-bottom: 20px; padding: 15px;">
             <h3 style="color: #198754; margin-top: 0;">Create New Prediction Topic</h3>
             <input type="text" id="new-question-input" placeholder="e.g., How many minutes late will Uncle Bob arrive?" onkeydown="if(event.key==='Enter') addNewTopic()">
@@ -184,8 +193,6 @@
             if (!currentUser || isTyping) return;
 
             let { data: usersArray, error: uErr } = await _supabase.from('shared_users').select('*');
-            
-            // Note: Changed sorting here to descending so the highest ID (latest question) loads first
             let { data: topics, error: tErr } = await _supabase.from('shared_topics').select('*').order('id', { ascending: false });
 
             if (uErr || tErr || !usersArray || !topics) return;
@@ -319,8 +326,34 @@
             alert("Topic uploaded globally!");
         }
 
+        // NEW FUNCTION: LOOPS THROUGH AND ADDS POINTS TO ALL USERS IN SUPABASE
+        async function givePointsToAll() {
+            const pointsInput = document.getElementById('global-points-input');
+            const amountToAdd = parseInt(pointsInput.value);
+
+            if (isNaN(amountToAdd) || amountToAdd <= 0) {
+                return alert("Please enter a valid number of points greater than 0.");
+            }
+
+            // Fetch current balances
+            let { data: usersArray, error } = await _supabase.from('shared_users').select('*');
+            if (error || !usersArray) return alert("Could not fetch players from database.");
+
+            // Update each player individually to calculate their new totals safely
+            for (let user of usersArray) {
+                const newTotal = (user.points || 0) + amountToAdd;
+                await _supabase
+                    .from('shared_users')
+                    .update({ points: newTotal })
+                    .eq('nickname', user.nickname);
+            }
+
+            pointsInput.value = '';
+            alert(`Success! Successfully added ${amountToAdd} points to all ${usersArray.length} players.`);
+            syncAndRefreshUI();
+        }
+
         async function renderAdmin() {
-            // Updated admin panel to load the newest IDs at the top as well
             let { data: topics } = await _supabase.from('shared_topics').select('*').order('id', { ascending: false });
             
             const adminContainer = document.getElementById('admin-topics');
