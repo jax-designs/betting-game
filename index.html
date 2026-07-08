@@ -113,10 +113,11 @@
 
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         let currentUser = null;
+        let isTyping = false; // Prevents the 4-second refresh loop from closing the keyboard
 
-        // Auto-fetch data from cloud storage every 4 seconds to keep screens in perfect sync
+        // Auto-fetch data from cloud storage every 4 seconds, unless actively typing
         setInterval(() => {
-            if (currentUser) {
+            if (currentUser && !isTyping) {
                 syncAndRefreshUI();
             }
         }, 4000);
@@ -125,20 +126,19 @@
             const nickname = document.getElementById('nickname-input').value.trim();
             if (!nickname) return alert("Please enter a nickname!");
 
-            // Check if player profile exists in the cloud database table
             let { data: user, error } = await _supabase
                 .from('shared_users')
                 .select('*')
-                .eq('nickname', nickname)
-                .single();
+                .eq('nickname', nickname);
 
-            if (!user) {
-                // Register new player profile on the shared network database
-                const { data, error: insErr } = await _supabase
+            if (!user || user.length === 0) {
+                const { error: insErr } = await _supabase
                     .from('shared_users')
-                    .insert([{ nickname: nickname, points: 100, bets: {} }])
-                    .select()
-                    .single();
+                    .insert([{ nickname: nickname, points: 100, bets: {} }]);
+                
+                if(insErr) {
+                    return alert("Database registration blocked. Check your Supabase settings!");
+                }
             }
 
             currentUser = nickname;
@@ -181,23 +181,17 @@
             }
         }
 
-       async function syncAndRefreshUI() {
-            if (!currentUser) return;
+        async function syncAndRefreshUI() {
+            if (!currentUser || isTyping) return;
 
-            // Fetch live profiles and topics from the global database tables
             let { data: usersArray, error: uErr } = await _supabase.from('shared_users').select('*');
             let { data: topics, error: tErr } = await _supabase.from('shared_topics').select('*').order('id', { ascending: true });
 
-            if (uErr || tErr || !usersArray || !topics) {
-                console.error("Sync error:", uErr || tErr);
-                return;
-            }
+            if (uErr || tErr || !usersArray || !topics) return;
 
-            // Reconstruct an internal lookup structure out of global array
             let users = {};
             usersArray.forEach(u => { users[u.nickname] = u; });
 
-            // Safety check if user vanished from DB
             if (!users[currentUser]) return;
 
             document.getElementById('user-display').innerText = currentUser;
@@ -210,7 +204,6 @@
                 const item = document.createElement('div');
                 item.className = 'topic-item';
                 
-                // Safe check for bets object
                 let userBets = users[currentUser].bets || {};
                 let userBet = userBets[topic.id];
 
@@ -224,8 +217,8 @@
                         item.innerHTML = `
                             <strong>${topic.question}</strong>
                             <div class="inline-flex" style="margin-top: 8px;">
-                                <input type="number" id="guess-${topic.id}" placeholder="Your Guess">
-                                <input type="number" id="amount-${topic.id}" placeholder="Points to Bet" min="1">
+                                <input type="number" id="guess-${topic.id}" placeholder="Your Guess" onfocus="isTyping=true" onblur="isTyping=false">
+                                <input type="number" id="amount-${topic.id}" placeholder="Points to Bet" min="1" onfocus="isTyping=true" onblur="isTyping=false">
                                 <button onclick="placeBet(${topic.id})" style="width: auto;">Bet</button>
                             </div>
                         `;
@@ -247,7 +240,6 @@
                     `;
                 }
 
-                // Global Bet View
                 let poolListItems = '';
                 for (let player in users) {
                     let playerBets = users[player].bets || {};
@@ -275,7 +267,6 @@
             if (guessInput === "" || isNaN(amountInput)) return alert("Please enter both fields.");
             if (amountInput <= 0) return alert("Bet must be greater than 0!");
 
-            // Fetch absolute up-to-date user object straight from remote database
             let { data: user, error: fetchErr } = await _supabase.from('shared_users').select('*').eq('nickname', currentUser).single();
             
             if (fetchErr || !user) return alert("Error finding your user profile.");
@@ -284,7 +275,9 @@
             let updatedBets = user.bets || {};
             updatedBets[topicId] = { guess: parseFloat(guessInput), amount: amountInput };
 
-            // Commit transaction data remotely
+            // Reset typing lock right before updating the database
+            isTyping = false;
+
             const { error: updateErr } = await _supabase
                 .from('shared_users')
                 .update({ 
@@ -297,10 +290,10 @@
                 console.error(updateErr);
                 alert("Could not save bet to database. Make sure your tables allow updates!");
             } else {
-                // Instantly update UI without waiting for the 4-second timer
                 syncAndRefreshUI();
             }
         }
+
         async function addNewTopic() {
             const questionInput = document.getElementById('new-question-input');
             const questionText = questionInput.value.trim();
@@ -383,14 +376,12 @@
                 }
             }
 
-            // Close topic row inside the cloud database table
             await _supabase.from('shared_topics').update({
                 status: 'closed',
                 result: actualResult,
                 winners: winners
             }).eq('id', topicId);
 
-            // Cleanup routine for older completed metrics
             let closedTopics = topics.filter(t => t.status === 'closed' || t.id === topicId);
             if (closedTopics.length > 5) {
                 let oldestClosedId = Math.min(...closedTopics.map(t => t.id));
