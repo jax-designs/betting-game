@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Prediction Pool</title>
+    <style>
+        :root {
+            --bg: #f8f9fa;
+            --text: #212529;
+            --accent: #0d6efd;
+            --border: #dee2e6;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.5;
+        }
+        h1, h2, h3 { margin-bottom: 0.5rem; }
+        .hidden { display: none !important; }
+        .card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            margin: 8px 0;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { opacity: 0.9; }
+        .flex { display: flex; justify-content: space-between; align-items: center; }
+        .admin-btn { background-color: #6c757d; font-size: 0.8rem; width: auto; padding: 5px 10px; }
+        .topic-item { border-bottom: 1px solid var(--border); padding: 15px 0; }
+        .topic-item:last-child { border-bottom: none; }
+        .inline-flex { display: flex; gap: 10px; }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen" class="card">
+        <h2>Family Prediction Pool</h2>
+        <p>Enter a nickname to join with 100 virtual points!</p>
+        <input type="text" id="nickname-input" placeholder="Your Nickname">
+        <button onclick="login()">Enter Game</button>
+    </div>
+
+    <div id="game-screen" class="hidden">
+        <div class="flex">
+            <div>
+                <h3>Welcome, <span id="user-display"></span>!</h3>
+                <p>Your Balance: <strong><span id="points-display">100</span> points</strong></p>
+            </div>
+            <button id="admin-toggle-btn" class="admin-btn hidden" onclick="toggleAdmin()">Admin Panel</button>
+        </div>
+        <button onclick="logout()" style="background:#dc3545; width:auto; padding:5px 10px; font-size:0.8rem;">Log Out</button>
+
+        <hr>
+
+        <h2>Current Topics</h2>
+        <div id="topics-list" class="card"></div>
+    </div>
+
+    <div id="admin-panel" class="card hidden">
+        <h2>Admin Control Panel</h2>
+        
+        <div class="card" style="border-style: dashed; border-color: #198754; margin-bottom: 20px; padding: 15px;">
+            <h3 style="color: #198754; margin-top: 0;">Create New Prediction Topic</h3>
+            <input type="text" id="new-question-input" placeholder="e.g., How many minutes late will Uncle Bob arrive?">
+            <button onclick="addNewTopic()" style="background-color: #198754;">Add Topic to Pool</button>
+        </div>
+
+        <p>Manually resolve the outcomes here (Closest numerical guess wins!).</p>
+        <div id="admin-topics"></div>
+        
+        <div class="inline-flex" style="margin-top: 15px; width: 100%;">
+            <button onclick="toggleAdmin()" style="background-color:#6c757d;">Back to Game</button>
+            <button onclick="if(confirm('Are you absolutely sure you want to delete all user balances and history?')) { localStorage.clear(); location.reload(); }" style="background-color: #dc3545;">Reset App Data</button>
+        </div>
+    </div>
+
+    <script>
+        let defaultTopics = [
+            { id: 1, question: "How many times will George score a goal at soccer?", status: "open", result: null, winners: [] },
+            { id: 2, question: "How many board games will Dad lose tonight?", status: "open", result: null, winners: [] },
+            { id: 3, question: "What time will the pizza arrive? (Nearest minute e.g. 15 for 6:15)", status: "open", result: null, winners: [] }
+        ];
+
+        if (!localStorage.getItem('topics')) {
+            localStorage.setItem('topics', JSON.stringify(defaultTopics));
+        }
+        if (!localStorage.getItem('users')) {
+            localStorage.setItem('users', JSON.stringify({}));
+        }
+
+        let currentUser = null;
+
+        function login() {
+            const nickname = document.getElementById('nickname-input').value.trim();
+            if (!nickname) return alert("Please enter a nickname!");
+
+            let users = JSON.parse(localStorage.getItem('users'));
+            
+            if (!users[nickname]) {
+                users[nickname] = { points: 100, bets: {} };
+                localStorage.setItem('users', JSON.stringify(users));
+            }
+
+            currentUser = nickname;
+
+            const adminToggleBtn = document.getElementById('admin-toggle-btn');
+            if (currentUser === "Jax") {
+                adminToggleBtn.classList.remove('hidden');
+            } else {
+                adminToggleBtn.classList.add('hidden');
+            }
+
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+            updateUI();
+        }
+
+        function logout() {
+            currentUser = null;
+            document.getElementById('game-screen').classList.add('hidden');
+            document.getElementById('admin-panel').classList.add('hidden');
+            document.getElementById('login-screen').classList.remove('hidden');
+            document.getElementById('nickname-input').value = '';
+            document.getElementById('admin-toggle-btn').classList.add('hidden');
+        }
+
+        function toggleAdmin() {
+            if (currentUser !== "Jax") {
+                alert("Access Denied: Only Jax can access the Admin Panel.");
+                return;
+            }
+
+            const gameScreen = document.getElementById('game-screen');
+            const adminPanel = document.getElementById('admin-panel');
+
+            if (adminPanel.classList.contains('hidden')) {
+                gameScreen.classList.add('hidden');
+                adminPanel.classList.remove('hidden');
+                renderAdmin();
+            } else {
+                adminPanel.classList.add('hidden');
+                gameScreen.classList.remove('hidden');
+                updateUI();
+            }
+        }
+
+        function updateUI() {
+            if (!currentUser) return;
+            let users = JSON.parse(localStorage.getItem('users'));
+            let topics = JSON.parse(localStorage.getItem('topics'));
+            
+            document.getElementById('user-display').innerText = currentUser;
+            document.getElementById('points-display').innerText = users[currentUser].points;
+
+            const listContainer = document.getElementById('topics-list');
+            listContainer.innerHTML = '';
+
+            topics.forEach(topic => {
+                const item = document.createElement('div');
+                item.className = 'topic-item';
+                
+                let userBet = users[currentUser].bets[topic.id];
+
+                if (topic.status === 'open') {
+                    if (userBet) {
+                        item.innerHTML = `
+                            <strong>${topic.question}</strong>
+                            <p style="color: green;">✓ You bet <strong>${userBet.amount} pts</strong> on guess: <strong>${userBet.guess}</strong></p>
+                        `;
+                    } else {
+                        item.innerHTML = `
+                            <strong>${topic.question}</strong>
+                            <div class="inline-flex" style="margin-top: 8px;">
+                                <input type="number" id="guess-${topic.id}" placeholder="Your Guess">
+                                <input type="number" id="amount-${topic.id}" placeholder="Points to Bet" min="1" max="${users[currentUser].points}">
+                                <button onclick="placeBet(${topic.id})" style="width: auto;">Bet</button>
+                            </div>
+                        `;
+                    }
+                } else {
+                    let outcomeText = `Outcome: Result was ${topic.result}. `;
+                    if (topic.winners.includes(currentUser)) {
+                        outcomeText += `<strong style="color: green;">You Won! 🎉</strong>`;
+                    } else if (userBet) {
+                        outcomeText += `<span style="color: #dc3545;">You Lost (Your guess: ${userBet.guess}).</span>`;
+                    } else {
+                        outcomeText += `Closed (You didn't play).`;
+                    }
+
+                    item.innerHTML = `
+                        <strong style="text-decoration: line-through; opacity: 0.6;">${topic.question}</strong>
+                        <p>${outcomeText}</p>
+                        <small>Winners: ${topic.winners.join(', ') || 'None'}</small>
+                    `;
+                }
+                listContainer.appendChild(item);
+            });
+        }
+
+        function placeBet(topicId) {
+            let users = JSON.parse(localStorage.getItem('users'));
+            const guessInput = document.getElementById(`guess-${topicId}`).value;
+            const amountInput = parseInt(document.getElementById(`amount-${topicId}`).value);
+
+            if (guessInput === "" || isNaN(amountInput)) return alert("Please enter both a guess and a bet amount.");
+            if (amountInput <= 0) return alert("Bet amount must be greater than 0!");
+            if (amountInput > users[currentUser].points) return alert("You don't have enough points!");
+
+            users[currentUser].points -= amountInput;
+            users[currentUser].bets[topicId] = { guess: parseFloat(guessInput), amount: amountInput };
+
+            localStorage.setItem('users', JSON.stringify(users));
+            updateUI();
+        }
+
+        function addNewTopic() {
+            const questionInput = document.getElementById('new-question-input');
+            const questionText = questionInput.value.trim();
+
+            if (!questionText) return alert("Please type out a prediction question first!");
+
+            let topics = JSON.parse(localStorage.getItem('topics'));
+            const newId = topics.length > 0 ? Math.max(...topics.map(t => t.id)) + 1 : 1;
+
+            const newTopic = {
+                id: newId,
+                question: questionText,
+                status: "open",
+                result: null,
+                winners: []
+            };
+
+            topics.push(newTopic);
+            localStorage.setItem('topics', JSON.stringify(topics));
+
+            questionInput.value = '';
+            renderAdmin();
+            alert("Topic successfully added!");
+        }
+
+        function renderAdmin() {
+            let topics = JSON.parse(localStorage.getItem('topics'));
+            const adminContainer = document.getElementById('admin-topics');
+            adminContainer.innerHTML = '';
+
+            topics.forEach(topic => {
+                const item = document.createElement('div');
+                item.className = 'topic-item';
+
+                if (topic.status === 'open') {
+                    item.innerHTML = `
+                        <p><strong>${topic.question}</strong></p>
+                        <div class="inline-flex">
+                            <input type="number" id="actual-${topic.id}" placeholder="Actual Result">
+                            <button onclick="resolveTopic(${topic.id})" style="background-color: #198754;">Resolve</button>
+                        </div>
+                    `;
+                } else {
+                    item.innerHTML = `
+                        <p><del>${topic.question}</del></p>
+                        <p style="color: gray; font-size: 0.9rem;">Resolved: Result was <strong>${topic.result}</strong></p>
+                    `;
+                }
+                adminContainer.appendChild(item);
+            });
+        }
+
+        // Logic to calculate winners and manage auto-cleanup
+        function resolveTopic(topicId) {
+            const actualResult = parseFloat(document.getElementById(`actual-${topicId}`).value);
+            if (isNaN(actualResult)) return alert("Please enter the official result.");
+
+            let users = JSON.parse(localStorage.getItem('users'));
+            let topics = JSON.parse(localStorage.getItem('topics'));
+            let currentTopic = topics.find(t => t.id === topicId);
+
+            let playersWhoBet = [];
+            let totalPool = 0;
+            let closestDiff = Infinity;
+            let winners = [];
+
+            for (let name in users) {
+                if (users[name].bets && users[name].bets[topicId]) {
+                    let betData = users[name].bets[topicId];
+                    totalPool += betData.amount;
+                    let diff = Math.abs(betData.guess - actualResult);
+                    playersWhoBet.push({ name: name, diff: diff });
+                }
+            }
+
+            if (playersWhoBet.length === 0) {
+                currentTopic.status = 'closed';
+                currentTopic.result = actualResult;
+                currentTopic.winners = [];
+            } else {
+                playersWhoBet.forEach(p => {
+                    if (p.diff < closestDiff) closestDiff = p.diff;
+                });
+
+                playersWhoBet.forEach(p => {
+                    if (p.diff === closestDiff) winners.push(p.name);
+                });
+
+                let prizeForEach = Math.floor(totalPool / winners.length);
+                winners.forEach(winner => {
+                    users[winner].points += prizeForEach;
+                });
+
+                currentTopic.status = 'closed';
+                currentTopic.result = actualResult;
+                currentTopic.winners = winners;
+            }
+
+            // --- AUTO-CLEANUP LOGIC ---
+            // Filter out all currently resolved ('closed') topics
+            let closedTopics = topics.filter(t => t.status === 'closed');
+            
+            // If more than 5 topics are resolved, clear out the oldest one
+            if (closedTopics.length > 5) {
+                // Find the lowest ID among the closed ones (the oldest)
+                let oldestClosedId = Math.min(...closedTopics.map(t => t.id));
+                // Filter the main topics array to exclude that oldest closed topic
+                topics = topics.filter(t => t.id !== oldestClosedId);
+            }
+            // ---------------------------
+
+            localStorage.setItem('users', JSON.stringify(users));
+            localStorage.setItem('topics', JSON.stringify(topics));
+            
+            renderAdmin();
+        }
+    </script>
+</body>
+</html>
