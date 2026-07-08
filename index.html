@@ -130,6 +130,7 @@
                 .select('*')
                 .eq('nickname', nickname);
 
+            // Cleans out or forces an empty layout if no user exists
             if (!user || user.length === 0) {
                 const { error: insErr } = await _supabase
                     .from('shared_users')
@@ -188,11 +189,11 @@
 
             if (uErr || tErr || !usersArray || !topics) return;
 
-            // SORTING LOGIC: Pushes 'open' topics to the top, 'closed' to the bottom
+            // Active topics sorted straight to the top
             topics.sort((a, b) => {
                 if (a.status === 'open' && b.status !== 'open') return -1;
                 if (a.status !== 'open' && b.status === 'open') return 1;
-                return 0; // Keep original order if statuses are the same
+                return 0;
             });
 
             let users = {};
@@ -322,7 +323,6 @@
         async function renderAdmin() {
             let { data: topics } = await _supabase.from('shared_topics').select('*').order('id', { ascending: true });
             
-            // Optional: You can also sort admin view if you want open topics at top for admin panel too
             topics.sort((a, b) => {
                 if (a.status === 'open' && b.status !== 'open') return -1;
                 if (a.status !== 'open' && b.status === 'open') return 1;
